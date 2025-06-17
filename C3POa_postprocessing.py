@@ -10,12 +10,15 @@ import editdistance as ld
 from glob import glob
 import gzip
 import gc
+import subprocess
+import tempfile
+import re
 
 
 VERSION = "v3.2  - Bombad Consensus"
 
 C3POaPath = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
-blat=C3POaPath+'/blat/blat'
+# BLAT removed - using minimap2/mappy instead
 
 def parse_args():
     '''Parses arguments.'''
@@ -97,7 +100,7 @@ def cat_files(path, pattern, output,compress,pos):
     final_fh.close()
     print(f'\tFinished combining tmp files {pos}/4',' '*60,end='\r')
 
-def process(args, reads, blat, iteration,subfolder):
+def process(args, reads, iteration, subfolder):
     tmp_dir = subfolder + 'post_tmp_' + str(iteration) + '/'
     if not os.path.isdir(tmp_dir):
         os.mkdir(tmp_dir)
@@ -108,12 +111,12 @@ def process(args, reads, blat, iteration,subfolder):
         print(seq, file=tmp_fa_fh)
     tmp_fa_fh.close()
 
-    run_blat(tmp_dir, tmp_fa, args.adapter_file, blat)
+    run_minimap2(tmp_dir, tmp_fa, args.adapter_file, reads)
     os.remove(tmp_fa)
-    adapter_dict = parse_blat(tmp_dir, reads)
+    adapter_dict = parse_minimap2(tmp_dir, reads)
     write_fasta_file(args, tmp_dir, adapter_dict, reads)
 
-def chunk_process(input_fasta,subfolder, args, blat):
+def chunk_process(input_fasta, subfolder, args):
     '''Split the input fasta into chunks and process'''
     num_reads=get_file_len(input_fasta)
 
@@ -129,7 +132,7 @@ def chunk_process(input_fasta,subfolder, args, blat):
 
 
     pool = mp.Pool(args.threads)
-    print('\tAligning with adapters to read with BLAT and processing alignments')
+    print('\tAligning adapters to reads with minimap2 and processing alignments')
     iteration, current_num, tmp_reads, target = 1, 0, {}, chunk_size
     for read in mm.fastx_read(input_fasta, read_comment=False):
         tmp_reads[read[0]] = read[1]
@@ -137,8 +140,8 @@ def chunk_process(input_fasta,subfolder, args, blat):
         if current_num == target:
             pool.apply_async(
                 process,
-                args=(args, tmp_reads, blat, iteration, subfolder),
-                callback=print(f'\tfinished BLAT process {iteration} of {total}',' '*60,end='\r')
+                args=(args, tmp_reads, iteration, subfolder),
+                callback=print(f'\tfinished minimap2 process {iteration} of {total}',' '*60,end='\r')
             )
             iteration += 1
             target = chunk_size * iteration
@@ -172,16 +175,123 @@ def read_fasta(inFile, indexes):
         return readDict, index_dict
     return readDict
 
-def run_blat(path, infile, adapter_fasta, blat):
+def run_minimap2(path, infile, adapter_fasta, reads):
     align_psl = path + 'adapter_to_consensus_alignment.psl'
-#    if not os.path.exists(align_psl) or os.stat(align_psl).st_size == 0:
-    os.system('{blat} -noHead -stepSize=1 -tileSize=6 -t=DNA -q=DNA -minScore=10 \
-                  -minIdentity=10 -minMatch=1 -oneOff=1 {adapters} {reads} {psl} >{blat_msgs}'
-                  .format(blat=blat, adapters=adapter_fasta, reads=infile, psl=align_psl, blat_msgs=path + 'blat_msgs.log'))
-#    else:
-#        print('Reading existing psl file', file=sys.stderr)
+    
+    # Load adapter sequences
+    adapter_seqs = {}
+    for name, seq, _ in mm.fastx_read(adapter_fasta):
+        adapter_seqs[name] = seq.upper()
+    
+    # Load read sequences from temp fasta
+    read_seqs = {}
+    for name, seq, _ in mm.fastx_read(infile):
+        read_seqs[name] = seq.upper()
+    
+    # Open output file in PSL-like format
+    with open(align_psl, 'w') as psl_out:
+        # Process each read against each adapter using direct minimap2
+        for read_name, read_seq in read_seqs.items():
+            for adapter_name, adapter_seq in adapter_seqs.items():
+                
+                # Create temporary files for minimap2
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.fa', delete=False) as read_file:
+                    read_file.write(f">{read_name}\n{read_seq}\n")
+                    read_path = read_file.name
+                
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.fa', delete=False) as adapter_file:
+                    adapter_file.write(f">{adapter_name}\n{adapter_seq}\n")
+                    adapter_path = adapter_file.name
+                
+                try:
+                    # Run minimap2 with --score-N=0 to handle degenerate bases properly
+                    # Find minimap2 in conda environment or system PATH
+                    minimap2_cmd = 'minimap2'
+                    # Check common conda locations
+                    conda_paths = [
+                        '/Users/gordon/miniforge3/envs/maple/bin/minimap2',
+                        '/opt/conda/bin/minimap2',
+                        '/usr/local/bin/minimap2'
+                    ]
+                    for p in conda_paths:
+                        if os.path.exists(p):
+                            minimap2_cmd = p
+                            break
+                    
+                    cmd = [
+                        minimap2_cmd,
+                        '--score-N=0',  # Score N bases as 0 (no penalty/bonus)  
+                        '-ax', 'sr',    # Short read preset
+                        '-k', '6',      # Small k-mer for sensitivity (matches BLAT tileSize=6)
+                        '-w', '3',      # Small window for sensitivity
+                        '--secondary=yes',  # Report secondary alignments
+                        read_path,      # Reference (read sequence)
+                        adapter_path    # Query (adapter sequence)
+                    ]
+                    
+                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    
+                    # Parse SAM output and convert to PSL-like format
+                    for line in result.stdout.strip().split('\n'):
+                        if line.startswith('@') or not line.strip():
+                            continue
+                        
+                        fields = line.split('\t')
+                        if len(fields) < 11:
+                            continue
+                        
+                        flag = int(fields[1])
+                        if flag & 4:  # Unmapped
+                            continue
+                        
+                        # Parse alignment details
+                        pos_start = int(fields[3]) - 1  # Convert to 0-based
+                        cigar = fields[5]
+                        
+                        # Parse CIGAR string
+                        cigar_ops = re.findall(r'(\d+)([MIDNSHP=X])', cigar)
+                        
+                        # Calculate alignment metrics
+                        ref_length = 0
+                        matches = 0
+                        gaps = 0
+                        
+                        for length, op in cigar_ops:
+                            length = int(length)
+                            if op in 'MDN=X':  # Operations that consume reference
+                                ref_length += length
+                            if op in 'M=':  # Matches
+                                matches += length
+                            elif op in 'ID':  # Indels
+                                gaps += length
+                        
+                        pos_end = pos_start + ref_length
+                        score = matches  # use matches as score
+                        strand = '+' if not (flag & 16) else '-'  # Check reverse complement flag
+                        
+                        # Write PSL-like line compatible with existing parser
+                        # PSL format: matches, misMatches, repMatches, nCount, qNumInsert, qBaseInsert,
+                        #            tNumInsert, tBaseInsert, strand, qName, qSize, qStart, qEnd, 
+                        #            tName, tSize, tStart, tEnd, blockCount, blockSizes, qStarts, tStarts
+                        psl_line = f"{score}\t0\t0\t0\t0\t{gaps}\t0\t0\t{strand}\t{read_name}\t{len(read_seq)}\t{pos_start}\t{pos_end}\t{adapter_name}\t{len(adapter_seq)}\t0\t{len(adapter_seq)}\t1\t{ref_length}\t{pos_start}\t0\n"
+                        psl_out.write(psl_line)
+                
+                except subprocess.CalledProcessError as e:
+                    # Silently continue if minimap2 fails for this read/adapter pair
+                    pass
+                except FileNotFoundError:
+                    print(f"Warning: minimap2 not found. Please install minimap2 or add it to PATH.", file=sys.stderr)
+                    break
+                
+                finally:
+                    # Clean up temporary files
+                    try:
+                        os.unlink(read_path)
+                        os.unlink(adapter_path)
+                    except:
+                        pass
 
-def parse_blat(path, reads):
+def parse_minimap2(path, reads):
     adapter_dict, iterator = {}, 0
 
     for name, sequence in reads.items():
@@ -491,7 +601,7 @@ def main(args):
                     if 'R2C2_Consensus.fasta' in file:
                         print('Finding and trimming adapters in file', subfolder, file)
                         input_fasta=subfolder+'/'+file
-                        chunk_process(input_fasta,subfolder, args, blat)
+                        chunk_process(input_fasta, subfolder, args)
     else:
         print(f'\n\nskipping the trimming step for {input_folder}\n\n')
 
