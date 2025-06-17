@@ -29,12 +29,7 @@ cd abPOA-v1.4.1; make
 cd $cwd
 rm abPOA-v1.4.1.tar.gz
 
-echo 'blat'
-mkdir blat
-cd blat
-wget http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/blat/blat
-chmod +x blat
-cd $cwd
+# BLAT removed - using minimap2/mappy instead (already installed via pip)
 
 
 
