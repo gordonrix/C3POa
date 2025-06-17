@@ -13,9 +13,9 @@ PATH = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/bin/'
 sys.path.append(os.path.abspath(PATH))
 
 C3POaPath = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
-abpoa=C3POaPath+'/abPOA-v1.4.1/bin/abpoa'
-racon=C3POaPath+'/racon/build/bin/racon'
-blat=C3POaPath+'/blat/blat'
+abpoa='/Users/gordon/miniforge3/envs/maple/src/abPOA-v1.5.3/bin/abpoa'
+racon='/Users/gordon/miniforge3/envs/maple/bin/racon'
+# BLAT removed - using minimap2/mappy instead
 
 from preprocess import preprocess
 from call_peaks import call_peaks
@@ -52,7 +52,7 @@ def parse_args():
                         help='Number of threads to use during multiprocessing. Defaults to 1.')
     parser.add_argument('--compress_output', '-co', action='store_true', default=False,
                         help='Use to compress (gzip) both the consensus fasta and subread fastq output files.')
-    parser.add_argument('--peakFinderSettings', '-p', action='store', default='20,3,41,2')
+    parser.add_argument('--peakFinderSettings', '-p', action='store', default='23,3,35,2')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -148,6 +148,8 @@ def create_files(adapter,args,outDict,outSubDict,outCountDict):
 
 
 def main(args):
+    if not args.out_path.endswith('/'):
+        args.out_path += '/'
     log_file = open(args.out_path + 'c3poa.log', 'a+')
     pool = mp.Pool(args.numThreads)
     if not args.nosplint:
@@ -166,7 +168,7 @@ def main(args):
     previous=set()
 
     if not args.nosplint:
-        adapter_dict, adapter_set, no_splint = preprocess(blat, args, tmp_dir, reads)
+        adapter_dict, adapter_set, no_splint = preprocess(args, tmp_dir, reads)
         for adapter in adapter_set:
             outDict,outSubDict,outCountDict=create_files(adapter,args,outDict,outSubDict,outCountDict)
     else:
