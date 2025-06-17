@@ -45,8 +45,8 @@ def parse_args():
                         help='Number of threads to use during multiprocessing. Defaults to 1.')
     parser.add_argument('--compress_output', '-co', action='store_true', default=False,
                         help='Use to compress (gzip) both the consensus fasta and subread fastq output files.')
-    parser.add_argument('--peakFinderSettings', '-p', action='store', default='20,3,41,2',
-                        help='Only set this if you have a really short splint (<50nt) and all your reads are discarded. Defaults to "20,3,41,2". Try "30,3,15,2" for a short splint. No promises though. We only tested C3POa for splints >100nt')
+    parser.add_argument('--peakFinderSettings', '-p', action='store', default='23,3,35,2',
+                        help='Peak detection parameters [penalty,iterations,window,order]. Defaults to optimized "23,3,35,2". Original default was "20,3,41,2". Try "30,3,15,2" for short splints (<50nt).')
     parser.add_argument('--resume', '-u', action='store_true', default=False,
                         help='''If set, C3POa will look for processed.log file in output directory. 
                                 If processed.log exists, reads marked as processed in the input will be skipped. 
@@ -193,12 +193,12 @@ def main(args):
                         tmp_file.write(f'@{name}\n{seq}\n+\n{q}\n')
                         if total_reads%10000==0:
                             if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                                os.system(f'python3 {C3POaPath}/generateConsensus.py -r {tmp_dir}/tmp_file {argString}')
+                                os.system(f'/Users/gordon/miniforge3/envs/maple/bin/python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                                 for line in open(f'{tmp_dir}/tmp_file_processed'):
                                     processed_file.write(line)
                                 tmp_file=open(f'{tmp_dir}/tmp_file','w')
                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                    os.system(f'python3 {C3POaPath}/generateConsensus.py -r {tmp_dir}/tmp_file {argString}')
+                    os.system(f'/Users/gordon/miniforge3/envs/maple/bin/python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                     for line in open(f'{tmp_dir}/tmp_file_processed'):
                         processed_file.write(line)
                     tmp_file=open(f'{tmp_dir}/tmp_file','w')
