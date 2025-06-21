@@ -193,12 +193,12 @@ def main(args):
                         tmp_file.write(f'@{name}\n{seq}\n+\n{q}\n')
                         if total_reads%10000==0:
                             if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                                os.system(f'/Users/gordon/miniforge3/envs/maple/bin/python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
+                                os.system(f'python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                                 for line in open(f'{tmp_dir}/tmp_file_processed'):
                                     processed_file.write(line)
                                 tmp_file=open(f'{tmp_dir}/tmp_file','w')
                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                    os.system(f'/Users/gordon/miniforge3/envs/maple/bin/python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
+                    os.system(f'python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                     for line in open(f'{tmp_dir}/tmp_file_processed'):
                         processed_file.write(line)
                     tmp_file=open(f'{tmp_dir}/tmp_file','w')
