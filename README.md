@@ -1,10 +1,14 @@
-# C3POa
+# C3POa - minimap2 fork
 
 [![Github release](https://img.shields.io/github/tag/christopher-vollmers/C3POa.svg?label=Version)](https://github.com/christopher-vollmers/C3POa/tags)
 [![Published in PNAS](https://img.shields.io/badge/Published%20in-PNAS-blue.svg)](https://doi.org/10.1073/pnas.1806447115)
 [![GPL license](https://img.shields.io/badge/License-GPL-blue.svg)](http://perso.crans.org/besson/LICENSE.html)
 
 C3POa (**C**oncatemeric **C**onsensus **C**aller with **P**artial **O**rder **a**lignments) is a computational pipeline for calling consensi on R2C2 nanopore data.
+
+## Fork Changes
+
+This is a fork of the original C3POa that replaces BLAT with minimap2 for improved compatibility with ARM architectures
 
 ## Dependencies
 
@@ -18,22 +22,34 @@ C3POa (**C**oncatemeric **C**onsensus **C**aller with **P**artial **O**rder **a*
 - [conk](https://github.com/rvolden/conk)
 - [racon](https://github.com/isovic/racon)
 - [editdistance](https://github.com/roy-ht/editdistance)
-- [blat source](https://users.soe.ucsc.edu/~kent/src/blatSrc35.zip) or [blat executable](http://hgdownload.soe.ucsc.edu/admin/exe/)
+- [minimap2](https://github.com/lh3/minimap2)
 
 To fetch and build dependencies, use setup.sh.
 
 setup.sh will download and make the packages that you need to run C3POa.
 
-The setup script will install racon and conk. It will also download a "most linux"  blat executable into your C3POa directory.
+The setup script will install racon and conk. Note: This fork no longer requires BLAT installation.
 
+### Conda Installation (Recommended)
+```bash
+# Create conda environment with dependencies
+conda create -n c3poa python=3.8 minimap2 racon abpoa mappy numpy scipy matplotlib
+conda activate c3poa
+
+# Clone and setup (update URL with your fork)
+git clone https://github.com/yourusername/C3POa.git
+cd C3POa
+chmod +x setup.sh
+./setup.sh
+```
+
+### Manual Installation
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
-If any of this doesn't work, you can download and install racon, conk, and blat manually and change where C3POa looks for them at the top of the C3POa.py and C3POa_postprocessing.py scripts.
-Blat can built from [source](https://users.soe.ucsc.edu/~kent/src/blatSrc35.zip) or you can get an [executable](http://hgdownload.soe.ucsc.edu/admin/exe/).
-Please follow the documentation in the blat readme for make instructions.
+If any of this doesn't work, you can download and install racon, conk, and minimap2 manually. Make sure minimap2, racon, and abpoa are available in your PATH or conda environment.
 
 --------------------------------------------------------------------------------
 
