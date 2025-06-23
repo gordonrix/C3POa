@@ -203,7 +203,7 @@ def main(args):
                                 print(f'\n\t\tRead 10000 sequences in {read_time:.2f}s, processing batch...')
                                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
                                     consensus_start = time.time()
-                                    os.system(f'{sys.executable} "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
+                                    os.system(f'{sys.executable} "{PATH}generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                                     consensus_time = time.time() - consensus_start
                                     print(f'\t\tConsensus generation took {consensus_time/60:.1f} minutes')
                                     for line in open(f'{tmp_dir}/tmp_file_processed'):
@@ -215,7 +215,7 @@ def main(args):
                     iterate = False
                     break
                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                    os.system(f'{sys.executable} "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
+                    os.system(f'{sys.executable} "{PATH}generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                     for line in open(f'{tmp_dir}/tmp_file_processed'):
                         processed_file.write(line)
                     tmp_file=open(f'{tmp_dir}/tmp_file','w')
