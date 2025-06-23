@@ -77,6 +77,9 @@ def getFileList(query_path,done):
 
 
 def main(args):
+    # Batch size for preprocessing, abPOA, and racon processing
+    batch_size = 10000
+    
     argString=''
     argString+=f'-s {args.splint_file} '
     argString+=f'-o {args.out_path} '
@@ -90,6 +93,7 @@ def main(args):
     if args.compress_output:
         argString+=f'-co '
     argString+=f'-p {args.peakFinderSettings} '
+    argString+=f'-bs {batch_size} '
     print(argString)
 
     resume=args.resume
@@ -145,7 +149,7 @@ def main(args):
         fileTimes=[]
         fileStart=time.time()
         log_file.write('new iteration\n')
-        tmp_dir = args.out_path + 'tmp/'
+        tmp_dir = os.path.join(args.out_path, 'tmp') + '/'
         if not os.path.isdir(tmp_dir):
             os.mkdir(tmp_dir)
         else:
@@ -187,18 +191,31 @@ def main(args):
                 total_reads=0
                 print(f'\tProcessing file {reads}')
                 log_file.write(f'Processing file {reads}\n')
-                for name,seq,q in mm.fastx_read(reads, read_comment=False):
-                    if name not in processed_reads:
-                        total_reads+=1
-                        tmp_file.write(f'@{name}\n{seq}\n+\n{q}\n')
-                        if total_reads%10000==0:
-                            if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                                os.system(f'python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
-                                for line in open(f'{tmp_dir}/tmp_file_processed'):
-                                    processed_file.write(line)
-                                tmp_file=open(f'{tmp_dir}/tmp_file','w')
+                print(f'\tStarting to read sequences from {reads}')
+                read_start_time = time.time()
+                try:
+                    for name,seq,q in mm.fastx_read(reads, read_comment=False):
+                        if name not in processed_reads:
+                            total_reads+=1
+                            tmp_file.write(f'@{name}\n{seq}\n+\n{q}\n')
+                            if total_reads%10000==0:
+                                read_time = time.time() - read_start_time
+                                print(f'\n\t\tRead 10000 sequences in {read_time:.2f}s, processing batch...')
+                                if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
+                                    consensus_start = time.time()
+                                    os.system(f'{sys.executable} "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
+                                    consensus_time = time.time() - consensus_start
+                                    print(f'\t\tConsensus generation took {consensus_time/60:.1f} minutes')
+                                    for line in open(f'{tmp_dir}/tmp_file_processed'):
+                                        processed_file.write(line)
+                                    tmp_file=open(f'{tmp_dir}/tmp_file','w')
+                                read_start_time = time.time()
+                except KeyboardInterrupt:
+                    print(f'\n\tKeyboard interrupt received - processing remaining {total_reads%10000} reads and exiting...')
+                    iterate = False
+                    break
                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
-                    os.system(f'python "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
+                    os.system(f'{sys.executable} "{C3POaPath}/generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                     for line in open(f'{tmp_dir}/tmp_file_processed'):
                         processed_file.write(line)
                     tmp_file=open(f'{tmp_dir}/tmp_file','w')
