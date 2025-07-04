@@ -16,8 +16,8 @@ sys.path.append(os.path.abspath(PATH))
 
 C3POaPath = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
 
-
-VERSION = "v3.2 - Bombad Consensus"
+# minimap2, abpoa, racon (MAR)
+VERSION = "v3.3 - Bombatch Consensus"
 
 def parse_args():
     '''Parses arguments.'''
@@ -47,6 +47,8 @@ def parse_args():
                         help='Use to compress (gzip) both the consensus fasta and subread fastq output files.')
     parser.add_argument('--peakFinderSettings', '-p', action='store', default='23,3,35,2',
                         help='Peak detection parameters [penalty,iterations,window,order]. Defaults to optimized "23,3,35,2". Original default was "20,3,41,2". Try "30,3,15,2" for short splints (<50nt).')
+    parser.add_argument('--batch_size', '-bs', type=int, default=10000,
+                        help='Number of reads to process in each batch. Defaults to 10000.')
     parser.add_argument('--resume', '-u', action='store_true', default=False,
                         help='''If set, C3POa will look for processed.log file in output directory. 
                                 If processed.log exists, reads marked as processed in the input will be skipped. 
@@ -78,7 +80,7 @@ def getFileList(query_path,done):
 
 def main(args):
     # Batch size for preprocessing, abPOA, and racon processing
-    batch_size = 10000
+    batch_size = args.batch_size
     
     argString=''
     argString+=f'-s {args.splint_file} '
@@ -198,20 +200,20 @@ def main(args):
                         if name not in processed_reads:
                             total_reads+=1
                             tmp_file.write(f'@{name}\n{seq}\n+\n{q}\n')
-                            if total_reads%10000==0:
+                            if total_reads%batch_size==0:
                                 read_time = time.time() - read_start_time
-                                print(f'\n\t\tRead 10000 sequences in {read_time:.2f}s, processing batch...')
+                                print(f'\n\t\tRead {batch_size} sequences in {read_time:.2f}s, processing batch...')
                                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
                                     consensus_start = time.time()
                                     os.system(f'{sys.executable} "{PATH}generateConsensus.py" -r "{tmp_dir}/tmp_file" {argString}')
                                     consensus_time = time.time() - consensus_start
-                                    print(f'\t\tConsensus generation took {consensus_time/60:.1f} minutes')
+                                    print(f'\t\tConsensus generation for {batch_size} sequences took {consensus_time/60:.1f} minutes')
                                     for line in open(f'{tmp_dir}/tmp_file_processed'):
                                         processed_file.write(line)
                                     tmp_file=open(f'{tmp_dir}/tmp_file','w')
                                 read_start_time = time.time()
                 except KeyboardInterrupt:
-                    print(f'\n\tKeyboard interrupt received - processing remaining {total_reads%10000} reads and exiting...')
+                    print(f'\n\tKeyboard interrupt received - processing remaining {total_reads%batch_size} reads and exiting...')
                     iterate = False
                     break
                 if os.path.getsize(f'{tmp_dir}/tmp_file')>0:
