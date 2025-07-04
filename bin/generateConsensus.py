@@ -10,18 +10,25 @@ import gc
 import gzip
 import time
 import subprocess
+import shutil
+
+from preprocess import preprocess
+from call_peaks import call_peaks
 
 PATH = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/bin/'
 sys.path.append(os.path.abspath(PATH))
 
-C3POaPath = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
-abpoa='/Users/gordon/miniforge3/envs/maple/src/abPOA-v1.5.3/bin/abpoa'
-racon='/Users/gordon/miniforge3/envs/maple/bin/racon'
-# BLAT removed - using minimap2/mappy instead
+# Find executables using shutil.which
+def find_executable(name):
+    exe_path = shutil.which(name)
+    if exe_path:
+        return exe_path
+    
+    raise FileNotFoundError(f"Executable '{name}' not found in PATH")
 
-from preprocess import preprocess
-from call_peaks import call_peaks
-from determine_consensus import determine_consensus
+abpoa = find_executable('abpoa')
+racon = find_executable('racon')
+
 
 def rounding(x, base):
     '''Rounds to the nearest base, we use 50'''
@@ -64,7 +71,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def analyze_reads(args, read, splint, read_adapter, racon, tmp_dir,abpoa):
+def analyze_reads(args, read, splint, read_adapter):
 
     peakFinderSettings=args.peakFinderSettings.split(',')
     penalty, iters, window, order = int(peakFinderSettings[0]),int(peakFinderSettings[1]),int(peakFinderSettings[2]),int(peakFinderSettings[3])
@@ -72,8 +79,6 @@ def analyze_reads(args, read, splint, read_adapter, racon, tmp_dir,abpoa):
     name, seq, qual = read[0], read[1], read[2]
     seq_len = len(seq)
     use=False
-    read_consensus = ''
-    subs=[]
     
     # Time the conk alignment
     conk_start = time.time()
@@ -130,6 +135,7 @@ def analyze_reads(args, read, splint, read_adapter, racon, tmp_dir,abpoa):
         # Calculate repeats
         repeats = len(subreads)
         
+        
         # Return subreads data for batched processing instead of calling determine_consensus
         consensus_data = {
             'read': read,
@@ -150,7 +156,7 @@ def analyze_reads(args, read, splint, read_adapter, racon, tmp_dir,abpoa):
     if 'peaks_time' in locals():
         timing_info['peaks'] = peaks_time  
     
-    return consensus_data,read_adapter,subs,peaks,timing_info
+    return consensus_data,read_adapter,peaks,timing_info
 
 def batch_consensus_generation(consensus_batch, abpoa, tmp_dir, args):
     """
@@ -159,6 +165,7 @@ def batch_consensus_generation(consensus_batch, abpoa, tmp_dir, args):
     """
     if not consensus_batch:
         return {}
+    
     
     # Create temporary files for each read's subreads
     batch_files = []
@@ -172,6 +179,7 @@ def batch_consensus_generation(consensus_batch, abpoa, tmp_dir, args):
         subreads = consensus_data['subreads']
         qual_subreads = consensus_data['qual_subreads']
         repeats = consensus_data['repeats']
+        
         
         # Skip single subreads (no abpoa needed)
         if repeats == 1:
@@ -207,22 +215,27 @@ def batch_consensus_generation(consensus_batch, abpoa, tmp_dir, args):
         if insert_lengths:
             max_length = max(insert_lengths)
             if max_length < 8000:
-                abpoa_cmd = f'{abpoa} -M 5 -r 0 -l {list_file} > {batch_output} 2>> abpoa.messages'
+                abpoa_cmd = f'{abpoa} -M 5 -r 0 -l {list_file} > {batch_output} 2>/dev/null'
             else:
-                abpoa_cmd = f'{abpoa} -M 5 -r 0 -S -l {list_file} > {batch_output} 2>> abpoa.messages'
+                abpoa_cmd = f'{abpoa} -M 5 -r 0 -S -l {list_file} > {batch_output} 2>/dev/null'
             
             os.system(abpoa_cmd)
             
-            # Parse results back to reads
+            # Parse results back to reads using new indexed headers
             if os.path.exists(batch_output) and os.path.getsize(batch_output) > 0:
-                consensus_seqs = []
+                # Parse consensus sequences using indexed headers
                 for name, seq, qual in mm.fastx_read(batch_output):
-                    consensus_seqs.append(seq)
-                
-                # Map consensus sequences back to read names
-                for i, read_name in enumerate(read_names):
-                    if i < len(consensus_seqs):
-                        consensus_results[read_name] = consensus_seqs[i]
+                    # Extract batch index from header (e.g., "Consensus_sequence_5" -> index 5)
+                    if name.startswith('Consensus_sequence_'):
+                        try:
+                            # Extract the number after the last underscore
+                            batch_index = int(name.split('_')[-1]) - 1  # Convert to 0-based index
+                            if 0 <= batch_index < len(read_names):
+                                read_name = read_names[batch_index]
+                                consensus_results[read_name] = seq
+                        except (ValueError, IndexError):
+                            # Skip malformed headers
+                            continue
             
             # Clean up batch files
             try:
@@ -414,6 +427,10 @@ def create_files(adapter,args,outDict,outSubDict,outCountDict):
 def main(args):
     if not args.out_path.endswith('/'):
         args.out_path += '/'
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(args.out_path, exist_ok=True)
+    
     log_file = open(args.out_path + 'c3poa.log', 'a+')
     
     if not args.nosplint:
@@ -478,10 +495,10 @@ def main(args):
                     splint = splint_dict[read_adapter_info[0]][1]
                 else:
                     splint = splint_dict[read_adapter_info[0]][0]
-                tasks.append((name, args, [name,seq,q], splint, read_adapter_info[0], racon, tmp_dir, abpoa))
+                tasks.append((name, args, [name,seq,q], splint, read_adapter_info[0]))
             else:
                  splint=adapter_dict[name]
-                 tasks.append((name, args, [name,seq,q], splint, 'noSplint', racon, tmp_dir, abpoa))
+                 tasks.append((name, args, [name,seq,q], splint, 'noSplint'))
 
     print(f'\tStarting preprocessing for {len(tasks)} reads...')
 
@@ -492,7 +509,7 @@ def main(args):
     with ProcessPoolExecutor(max_workers=args.numThreads) as executor:
         # Submit all tasks
         future_to_name = {
-            executor.submit(analyze_reads, task[1], task[2], task[3], task[4], task[5], task[6], task[7]): task[0] 
+            executor.submit(analyze_reads, task[1], task[2], task[3], task[4]): task[0] 
             for task in tasks
         }
         
@@ -524,12 +541,14 @@ def main(args):
     consensus_batch = []  # List of (index, consensus_data, adapter) for batch processing
     
     for index, result in results.items():
-        consensus_data, adapter, subs, peaks, timing_info = result
+        consensus_data, adapter, peaks, timing_info = result
+        subs = []  # Initialize empty subs list for compatibility
         
         # Collect timing stats
         for operation, duration in timing_info.items():
             if operation in timing_stats:
                 timing_stats[operation].append(duration)
+        
         
         if consensus_data:
             # Add to batch for processing
